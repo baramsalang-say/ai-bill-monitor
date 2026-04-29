@@ -1,0 +1,23 @@
+name: AI Bill Monitor Job
+
+on:
+  schedule:
+    - cron: '0 0 1,15 * *'  # 매달 1일과 15일 00:00(UTC)에 실행
+  workflow_dispatch:        # 수동 실행 버튼을 활성화해줍니다.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run Script
+        run: python monitor.py
+        env:
+          ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
+          MY_EMAIL_PW: ${{ secrets.MY_EMAIL_PW }}
