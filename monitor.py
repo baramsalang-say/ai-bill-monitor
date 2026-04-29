@@ -12,35 +12,47 @@ MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
 def fetch_bills():
-    # 국회 의안정보시스템 검색 (인공지능 키워드)
+    # 국회 의안정보시스템 검색 주소
     url = "https://likms.assembly.go.kr/bill/billLList.do"
     params = {
         'searchStr': '인공지능',
         'pIndex': 1,
-        'pSize': 20 # 최신 20건만 우선 확인
+        'pSize': 15
     }
+    # 실제 브라우저처럼 보이게 하는 헤더 (차단 방지)
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
     }
 
     try:
+        print("데이터 수집 시작...")
         response = requests.get(url, params=params, headers=headers, timeout=30)
-        soup = BeautifulSoup(response.text, 'lxml')
+        response.raise_for_status() # 접속 실패 시 에러 발생
         
+        soup = BeautifulSoup(response.text, 'html.parser')
         bills = []
-        # 테이블의 데이터 행들을 찾습니다.
-        table = soup.select_list('table.table tbody tr') or soup.find_all('tr')
         
-        for row in table:
+        # 테이블 행 찾기 (가장 표준적인 경로)
+        rows = soup.find_all('tr')
+        print(f"총 {len(rows)}개의 행 발견")
+
+        for row in rows:
             cols = row.find_all('td')
-            if len(cols) > 5:
+            if len(cols) > 4:
                 title_elem = cols[1].find('a')
                 if title_elem:
-                    title = title_elem.text.strip()
-                    proposer = cols[3].text.strip()
-                    date = cols[4].text.strip()
-                    # 링크 생성을 위한 ID 추출
-                    bill_id = title_elem.get('onclick', '').split("'")[1] if "'" in title_elem.get('onclick', '') else ""
+                    title = title_elem.get_text(strip=True)
+                    proposer = cols[3].get_text(strip=True)
+                    date = cols[4].get_text(strip=True)
+                    
+                    # 상세 링크 추출
+                    onclick = title_elem.get('onclick', '')
+                    bill_id = ""
+                    if "billId=" in onclick or "'" in onclick:
+                        try:
+                            bill_id = onclick.split("'")[1]
+                        except: pass
                     
                     bills.append({
                         'title': title,
@@ -48,36 +60,39 @@ def fetch_bills():
                         'date': date,
                         'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}" if bill_id else "#"
                     })
+        
+        print(f"최종 {len(bills)}건 수집 완료")
         return bills
     except Exception as e:
-        print(f"수집 실패: {e}")
+        print(f"상세 에러 발생: {e}")
         return []
 
 def send_email(bills):
+    # 데이터가 없어도 시스템 생존 확인을 위해 메일은 보냅니다.
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[최종교정] NIA 국회 입법 동향 리포트 - {len(bills)}건 발견"
+    msg['Subject'] = f"[최종확인] 국회 입법 모니터링 시스템 보고 ({datetime.now().strftime('%m/%d')})"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
-    html = f"""
-    <html>
-    <body style="font-family: sans-serif;">
-        <h2 style="color: #2980b9;">🏛️ 국회 의안정보 실시간 모니터링 (NIA)</h2>
-        <p>국회 홈페이지에서 직접 수집한 최신 AI 관련 법안입니다.</p>
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-            <tr style="background-color: #f2f2f2;">
-                <th style="padding: 10px;">제안일</th><th style="padding: 10px;">법안명</th><th style="padding: 10px;">제안자</th>
-            </tr>
-    """
-    for b in bills:
-        html += f"<tr><td style='padding:8px;'>{b['date']}</td><td style='padding:8px;'><b><a href='{b['link']}'>{b['title']}</a></b></td><td style='padding:8px;'>{b['proposer']}</td></tr>"
-    
-    html += "</table></body></html>"
-    msg.attach(MIMEText(html, 'html'))
+    if not bills:
+        content = "<p>수집된 데이터가 없습니다. 국회 사이트 구조가 변경되었거나 접근이 차단되었을 수 있습니다.</p>"
+    else:
+        content = f"<h3>최신 인공지능 관련 법안 ({len(bills)}건)</h3>"
+        content += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
+        content += "<tr style='background:#f2f2f2;'><th>날짜</th><th>법안명</th><th>제안자</th></tr>"
+        for b in bills:
+            content += f"<tr><td>{b['date']}</td><td><a href='{b['link']}'>{b['title']}</a></td><td>{b['proposer']}</td></tr>"
+        content += "</table>"
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(MY_EMAIL, EMAIL_PW)
-        server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
+    msg.attach(MIMEText(content, 'html'))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(MY_EMAIL, EMAIL_PW)
+            server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
+        print("메일 발송 성공")
+    except Exception as e:
+        print(f"메일 발송 에러: {e}")
 
 if __name__ == "__main__":
     data = fetch_bills()
