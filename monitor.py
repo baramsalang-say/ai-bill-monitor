@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 # [보안 설정] GitHub Secrets에서 값을 가져옵니다.
 API_KEY = os.environ.get("ASSEMBLY_API_KEY")
 EMAIL_PW = os.environ.get("MY_EMAIL_PW")
-MY_EMAIL = "jyjeong@nia.or.kr"  # <--- 본인 이메일로 수정하세요!
+MY_EMAIL = "baramsalang@gmail.com"  # <--- 본인 이메일로 수정하세요!
 
 # [필터링 설정] 감시할 키워드
 KEYWORDS = ["인공지능", "AI", "알고리즘", "데이터", "딥러닝", "머신러닝"]
@@ -47,12 +47,12 @@ def send_email(bills):
     msg = MIMEText(content)
     msg['Subject'] = f"[테스트] 국회 법안 모니터링 시스템 작동 확인"
     msg['From'] = MY_EMAIL
-    msg['To'] = MY_EMAIL
+    msg['To'] = "jyjeong@nia.or.kr"
     
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(MY_EMAIL, EMAIL_PW)
-            server.sendmail(MY_EMAIL, MY_EMAIL, msg.as_string())
+            server.sendmail(MY_EMAIL, "jyjeong@nia.or.kr", msg.as_string())
         print("이메일 발송 완료!")
     except Exception as e:
         print(f"이메일 발송 중 오류 발생: {e}")
