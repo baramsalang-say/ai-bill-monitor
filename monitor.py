@@ -11,113 +11,100 @@ EMAIL_PW = os.environ.get("MY_EMAIL_PW")
 MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
-# [필터링 키워드]
-KEYWORDS = ["인공지능", "AI", "알고리즘", "데이터", "딥러닝", "머신러닝", "지능정보", "챗GPT", "자동화"]
+# [키워드] 최대한 넓게 잡기
+KEYWORDS = ["인공지능", "AI", "알고리즘", "데이터", "딥러닝", "머신러닝", "지능정보", "자동화"]
 
 def fetch_bills():
-    # 제22대 국회를 포함한 최신 의안 통합 API 주소로 변경 (가장 확실한 소스)
-    # pSize를 1000으로 늘려 최근 1년치를 충분히 커버합니다.
+    # 국회 오픈 API 포털의 가장 기본적이고 최신인 '의안정보' 서비스 주소 (ALLBILLS)
+    # 22대 국회 데이터가 포함된 통합 서비스 주소입니다.
     url = f"https://open.assembly.go.kr/portal/openapi/nwvrqwxyaytdsfvhu?KEY={API_KEY}&Type=json&pIndex=1&pSize=1000"
     
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         data = response.json()
         
-        # 1년 전 날짜 설정
+        # 1. API 자체 에러 확인
+        if 'head' in data and 'errorCode' in data['head']:
+            error_code = data['head']['errorCode']
+            if error_code != "INFO-000":
+                print(f"API 서버 응답 에러: {error_code}")
+                return [], f"API 에러 ({error_code})"
+
+        # 1년 전 날짜 (비교용)
         one_year_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
         
-        # API 응답 구조 확인 및 데이터 추출
+        # 2. 데이터 추출 시작
         if 'nwvrqwxyaytdsfvhu' in data:
             rows = data['nwvrqwxyaytdsfvhu'][1].get('row', [])
+            print(f"총 {len(rows)}건의 원본 데이터를 가져왔습니다.") # 디버깅용
             
             filtered = []
             for b in rows:
                 bill_name = b.get('BILL_NM', '')
-                propose_dt = b.get('PROPOSE_DT', '') # 제안일
+                propose_dt = b.get('PROPOSE_DT', '')
                 
-                # 1. 날짜 필터 (최근 1년)
-                if propose_dt and propose_dt >= one_year_ago:
-                    # 2. 키워드 필터 (띄어쓰기 무시 매칭)
-                    clean_bill_name = bill_name.upper().replace(" ", "")
-                    if any(k.upper() in clean_bill_name for k in KEYWORDS):
+                # 1년 이내 데이터만 필터
+                if propose_dt >= one_year_ago:
+                    clean_name = bill_name.upper().replace(" ", "")
+                    if any(k.upper() in clean_name for k in KEYWORDS):
                         filtered.append(b)
             
             filtered.sort(key=lambda x: x['PROPOSE_DT'], reverse=True)
-            return filtered
+            return filtered, "정상"
         else:
-            print("API 응답 구조가 예상과 다릅니다. 주소를 다시 확인하세요.")
-            return []
+            return [], "데이터 구조 없음"
+            
     except Exception as e:
-        print(f"데이터 수집 중 오류 발생: {e}")
-        return []
+        print(f"수집 실패: {e}")
+        return [], str(e)
 
-def send_email(bills):
+def send_email(bills, status):
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[긴급교정] 국회 AI 관련 법안 모니터링 - {len(bills)}건 발견 ({datetime.now().strftime('%Y-%m-%d')})"
+    msg['Subject'] = f"[점검] 국회 AI 법안 모니터링 - {len(bills)}건 발견 (상태: {status})"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
+    # NIA 연구원용 리포트 디자인
     html_content = f"""
     <html>
-    <head>
-        <style>
-            table {{ border-collapse: collapse; width: 100%; font-family: 'Malgun Gothic', sans-serif; }}
-            th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
-            th {{ background-color: #004792; color: white; }}
-            tr:nth-child(even) {{ background-color: #f9f9f9; }}
-            .link-btn {{ color: #004792; text-decoration: none; font-weight: bold; }}
-            .header-info {{ background-color: #f0f4f8; padding: 15px; border-left: 5px solid #004792; margin-bottom: 20px; }}
-        </style>
-    </head>
     <body>
-        <h2 style="color: #2c3e50;">🏛️ 제22대 국회 AI 관련 법안 모니터링</h2>
-        <div class="header-info">
-            <b>조회 기준:</b> 최근 1년 (제22대 국회 포함)<br>
-            <b>검색 결과:</b> 총 {len(bills)}건이 발견되었습니다.
+        <h2 style="color: #2c3e50;">🏛️ 제22대 국회 AI 법안 모니터링 (NIA 전용)</h2>
+        <div style="background-color: #f8f9fa; padding: 15px; border-left: 5px solid #004792; margin-bottom: 20px;">
+            <b>시스템 상태:</b> {status}<br>
+            <b>원본 데이터 확인:</b> 국회 최신 의안 {('1000' if status=='정상' else '0')}건 수집 시도<br>
+            <b>검색 결과:</b> 최근 1년 내 AI 관련 법안 총 {len(bills)}건 발견
         </div>
-        <table>
-            <tr>
-                <th style="width: 120px;">제안일</th>
-                <th>의안명</th>
-                <th style="width: 150px;">제안자</th>
-                <th style="width: 100px;">링크</th>
+        <table border="1" style="border-collapse: collapse; width: 100%;">
+            <tr style="background-color: #004792; color: white;">
+                <th style="padding: 10px;">제안일</th>
+                <th style="padding: 10px;">의안명</th>
+                <th style="padding: 10px;">제안자</th>
+                <th style="padding: 10px;">상세</th>
             </tr>
     """
     
     if not bills:
-        html_content += "<tr><td colspan='4' style='text-align: center; padding: 30px;'>최근 1년 내 해당 키워드로 상정된 의안이 없습니다.</td></tr>"
+        html_content += f"<tr><td colspan='4' style='padding: 30px; text-align: center;'>데이터가 없습니다. (상태: {status})</td></tr>"
     else:
         for b in bills:
             bill_id = b.get('BILL_ID', '')
-            # 22대 국회 상세 페이지 링크 생성
             link = f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}"
-            
             html_content += f"""
             <tr>
-                <td>{b['PROPOSE_DT']}</td>
-                <td><b>{b['BILL_NM']}</b></td>
-                <td>{b['PROPOSER']}</td>
-                <td><a href="{link}" class="link-btn">상세보기</a></td>
+                <td style="padding: 10px;">{b['PROPOSE_DT']}</td>
+                <td style="padding: 10px;"><b>{b['BILL_NM']}</b></td>
+                <td style="padding: 10px;">{b['PROPOSER']}</td>
+                <td style="padding: 10px;"><a href="{link}">원문</a></td>
             </tr>
             """
     
-    html_content += """
-        </table>
-        <p style="color: #7f8c8d; font-size: 12px; margin-top: 20px;">본 메일은 NIA 업무 지원을 위해 자동 생성된 보고서입니다.</p>
-    </body>
-    </html>
-    """
-    
+    html_content += "</table></body></html>"
     msg.attach(MIMEText(html_content, 'html'))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(MY_EMAIL, EMAIL_PW)
-            server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
-        print(f"발송 완료: {len(bills)}건")
-    except Exception as e:
-        print(f"메일 발송 에러: {e}")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(MY_EMAIL, EMAIL_PW)
+        server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
 
 if __name__ == "__main__":
-    found_bills = fetch_bills()
-    send_email(found_bills)
+    found_bills, status_msg = fetch_bills()
+    send_email(found_bills, status_msg)
