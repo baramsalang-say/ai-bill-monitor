@@ -2,22 +2,22 @@ name: AI Bill Monitor Job
 
 on:
   schedule:
-    - cron: '0 0 1,15 * *'  # 매달 1일과 15일 00:00(UTC)에 실행
-  workflow_dispatch:        # 수동 실행 버튼을 활성화해줍니다.
+    - cron: '0 0 1,15 * *'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4  # v3에서 v4로 업데이트 (경고 해결)
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
       - name: Install dependencies
-        run: pip install requests
+        run: |
+          pip install requests beautifulsoup4 lxml
       - name: Run Script
         run: python monitor.py
         env:
-          ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
           MY_EMAIL_PW: ${{ secrets.MY_EMAIL_PW }}
