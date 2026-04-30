@@ -5,74 +5,60 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# 환경 변수 세팅
+# [환경 변수] GitHub Secrets 설정을 꼭 확인하세요.
 API_KEY = os.environ.get("ASSEMBLY_API_KEY")
 EMAIL_PW = os.environ.get("MY_EMAIL_PW")
 MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
-def fetch_bills():
-    # 명세서에 명시된 의안 접수목록 공식 주소
+def fetch_all_bills_test():
+    # 명세서(image_2ac3ff.png) 기준 BILLRCPV2 주소
     url = "https://open.assembly.go.kr/portal/openapi/BILLRCPV2"
     
-    # ERROR-300 방지를 위해 명세서의 기본값(1, 100)을 엄격히 준수하여 요청
     params = {
         'KEY': API_KEY,
         'Type': 'json',
         'pIndex': 1,
-        'pSize': 100 
+        'pSize': 10  # 가장 최근에 접수된 딱 10건만 가져옵니다.
     }
 
     try:
-        # 명세서 가이드대로 인증키와 기본 인자를 실어서 호출
         response = requests.get(url, params=params, timeout=30)
         data = response.json()
         
-        # NIA 핵심 모니터링 키워드
-        keywords = ["인공지능", "AI", "데이터", "지능정보", "디지털", "알고리즘", "클라우드", "소프트웨어"]
-        filtered_bills = []
-
-        # 서버 응답 구조(BILLRCPV2 -> row)에 맞춰 파싱
+        all_bills = []
         if 'BILLRCPV2' in data:
             rows = data['BILLRCPV2'][1].get('row', [])
             for b in rows:
-                bill_nm = b.get('BILL_NM', '')     # 의안명
-                ppsl_dt = b.get('PPSL_DT', '')     # 접수일
-                ppsr_nm = b.get('PPSR_NM', '의원 등') # 제안자
-                link_url = b.get('LINK_URL', '')   # 상세 링크
-
-                clean_nm = bill_nm.upper().replace(" ", "")
-                if any(k.upper() in clean_nm for k in keywords):
-                    filtered_bills.append({
-                        'date': ppsl_dt,
-                        'title': bill_nm,
-                        'proposer': ppsr_nm,
-                        'link': link_url
-                    })
-        return filtered_bills
+                all_bills.append({
+                    'date': b.get('PPSL_DT', ''),
+                    'title': b.get('BILL_NM', ''),
+                    'proposer': b.get('PPSR_NM', '의원 등'),
+                    'link': b.get('LINK_URL', '')
+                })
+        return all_bills
     except Exception as e:
-        print(f"데이터 처리 오류: {e}")
+        print(f"테스트 호출 에러: {e}")
         return []
 
-def send_email(bills):
+def send_test_email(bills):
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🏛️ [최종교정] NIA 국회 입법 모니터링 - {len(bills)}건 발견"
+    msg['Subject'] = f"🚀 [최종 테스트] 국회 최신 접수 데이터 {len(bills)}건 수신 성공"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
     html = f"""
     <html><body>
-        <h2 style="color: #002d56;">📊 NIA 지능정보사회 의안 접수 리포트</h2>
-        <p>파라미터 규격을 재조정하여 <b>정상 수집</b>된 실시간 데이터입니다.</p>
+        <h2 style="color: #27ae60;">✅ 시스템 최종 수신 테스트</h2>
+        <p>키워드 필터링을 해제하고 <b>국회 서버에서 온 생생한 최신 10건</b>을 그대로 보여줍니다.</p>
     """
     if not bills:
-        html += "<p style='color: #e74c3c;'>현재 접수된 의안 중 키워드와 일치하는 법안이 없습니다.</p>"
+        html += "<p style='color: red;'>데이터가 한 건도 없습니다. API 승인 상태나 키 값을 다시 확인해야 합니다.</p>"
     else:
-        html += f"<p>총 <b>{len(bills)}건</b>의 법안이 감지되었습니다.</p>"
         html += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
-        html += "<tr style='background:#f8f9fa;'><th>접수일</th><th>의안명</th><th>제안자</th></tr>"
+        html += "<tr style='background:#f4f4f4;'><th>접수일</th><th>의안명</th><th>제안자</th></tr>"
         for b in bills:
-            html += f"<tr><td style='padding:8px; text-align:center;'>{b['date']}</td><td style='padding:8px;'><a href='{b['link']}'>{b['title']}</a></td><td style='padding:8px;'>{b['proposer']}</td></tr>"
+            html += f"<tr><td style='padding:8px;'>{b['date']}</td><td style='padding:8px;'>{b['title']}</td><td style='padding:8px;'>{b['proposer']}</td></tr>"
         html += "</table>"
     html += "</body></html>"
 
@@ -83,5 +69,5 @@ def send_email(bills):
         server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
 
 if __name__ == "__main__":
-    results = fetch_bills()
-    send_email(results)
+    results = fetch_all_bills_test()
+    send_test_email(results)
