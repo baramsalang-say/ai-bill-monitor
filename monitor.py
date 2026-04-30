@@ -11,83 +11,38 @@ EMAIL_PW = os.environ.get("MY_EMAIL_PW")
 MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
-def fetch_bills():
-    # 가장 확실한 의안목록전체 주소 (v2 타겟)
+def fetch_debug_info():
+    # v2 전용 주소
     url = "https://open.assembly.go.kr/portal/openapi/nzmimehqvxbmqvpif"
-    
-    # 진단을 위해 1,000건을 한꺼번에 가져옵니다.
-    params = {
-        'KEY': API_KEY,
-        'Type': 'json',
-        'pIndex': 1,
-        'pSize': 1000 
-    }
+    params = { 'KEY': API_KEY, 'Type': 'json', 'pIndex': 1, 'pSize': 3 }
 
     try:
         response = requests.get(url, params=params, timeout=30)
-        data = response.json()
-        
-        all_recent_samples = [] # 샘플 확인용
-        filtered_bills = []
-        
-        keywords = ["인공지능", "AI", "데이터", "지능", "디지털", "소프트웨어", "정보통신", "ICT", "플랫폼"]
-        
-        if 'nzmimehqvxbmqvpif' in data:
-            rows = data['nzmimehqvxbmqvpif'][1].get('row', [])
-            
-            # 상위 5개를 샘플로 저장
-            for i in range(min(5, len(rows))):
-                all_recent_samples.append(rows[i].get('BILL_NM', '의안명 없음'))
-
-            for b in rows:
-                bill_nm = b.get('BILL_NM', '')
-                clean_nm = bill_nm.upper().replace(" ", "")
-                if any(k.upper() in clean_nm for k in keywords):
-                    filtered_bills.append({
-                        'date': b.get('PROPOSE_DT', ''),
-                        'title': bill_nm,
-                        'proposer': b.get('PROPOSER', ''),
-                        'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={b.get('BILL_ID')}"
-                    })
-        return filtered_bills, all_recent_samples
+        # 서버 응답 텍스트 전체를 가져옵니다.
+        raw_text = response.text
+        return raw_text
     except Exception as e:
-        print(f"에러: {e}")
-        return [], [str(e)]
+        return f"통신 에러 발생: {str(e)}"
 
-def send_email(bills, samples):
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🏛️ [데이터 진단] 국회 입법 모니터링 ({len(bills)}건 발견)"
+def send_debug_email(raw_content):
+    msg = MIMEMultipart()
+    msg['Subject'] = f"🚨 [긴급진단] 국회 API 서버 응답 전문 ({datetime.now().strftime('%H:%M')})"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
-    html = f"""
-    <html><body>
-        <h3>1. 키워드 필터링 결과: {len(bills)}건</h3>
+    body = f"""
+    <h3>국회 서버에서 보내온 실제 데이터(Raw Text)입니다.</h3>
+    <p>아래 박스 안의 내용을 그대로 복사해서 저에게 알려주세요.</p>
+    <div style="background: #f4f4f4; padding: 15px; border: 1px solid #ccc; font-family: monospace; white-space: pre-wrap;">
+    {raw_content}
+    </div>
     """
-    if bills:
-        html += "<table border='1'><tr><th>날짜</th><th>의안명</th></tr>"
-        for b in bills:
-            html += f"<tr><td>{b['date']}</td><td><a href='{b['link']}'>{b['title']}</a></td></tr>"
-        html += "</table>"
-    else:
-        html += "<p style='color:red;'>선택하신 키워드와 일치하는 법안이 최신 1,000건 중에는 없습니다.</p>"
-
-    html += f"""
-        <br><hr>
-        <h3>2. 시스템이 실제로 가져온 최신 법안 샘플 (Top 5)</h3>
-        <p>아래 목록이 보인다면 API 연결은 완벽한 것입니다.</p>
-        <ul>
-    """
-    for s in samples:
-        html += f"<li>{s}</li>"
-    html += "</ul></body></html>"
-
-    msg.attach(MIMEText(html, 'html'))
+    msg.attach(MIMEText(body, 'html'))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(MY_EMAIL, EMAIL_PW)
         server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
 
 if __name__ == "__main__":
-    bills, samples = fetch_bills()
-    send_email(bills, samples)
+    debug_data = fetch_debug_info()
+    send_debug_email(debug_data)
