@@ -1,7 +1,7 @@
 import requests
 import smtplib
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -12,89 +12,82 @@ MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
 def fetch_bills():
-    # 의안목록전체 API
+    # 가장 확실한 의안목록전체 주소 (v2 타겟)
     url = "https://open.assembly.go.kr/portal/openapi/nzmimehqvxbmqvpif"
     
-    # 22대 국회 개원 시점부터 현재까지 넉넉하게 설정
-    date_limit = "20240530" 
-    
+    # 진단을 위해 1,000건을 한꺼번에 가져옵니다.
     params = {
         'KEY': API_KEY,
         'Type': 'json',
         'pIndex': 1,
-        'pSize': 500  # 한 번에 500건씩 확인
+        'pSize': 1000 
     }
 
     try:
         response = requests.get(url, params=params, timeout=30)
         data = response.json()
         
-        # NIA 도메인 통합 키워드 (거의 모든 IT/데이터 관련 키워드 포함)
-        keywords = [
-            "인공지능", "AI", "데이터", "지능정보", "디지털", "알고리즘", "지능형", 
-            "정보통신", "ICT", "클라우드", "소프트웨어", "플랫폼", "메타버스", 
-            "가상융합", "로봇", "개인정보", "공공데이터", "컴퓨팅", "네트워크"
-        ]
-        
+        all_recent_samples = [] # 샘플 확인용
         filtered_bills = []
-        service_name = 'nzmimehqvxbmqvpif'
-
-        if service_name in data:
-            rows = data[service_name][1].get('row', [])
-            # [추가] 수집된 데이터를 제안일 기준으로 다시 한번 정렬
-            rows.sort(key=lambda x: x.get('PROPOSE_DT', ''), reverse=True)
+        
+        keywords = ["인공지능", "AI", "데이터", "지능", "디지털", "소프트웨어", "정보통신", "ICT", "플랫폼"]
+        
+        if 'nzmimehqvxbmqvpif' in data:
+            rows = data['nzmimehqvxbmqvpif'][1].get('row', [])
             
+            # 상위 5개를 샘플로 저장
+            for i in range(min(5, len(rows))):
+                all_recent_samples.append(rows[i].get('BILL_NM', '의안명 없음'))
+
             for b in rows:
                 bill_nm = b.get('BILL_NM', '')
-                raw_dt = b.get('PROPOSE_DT', '')
-                ppsl_dt = raw_dt.replace("-", "") if raw_dt else ""
-                
-                # 22대 국회 이후 데이터 중 키워드 매칭
-                if ppsl_dt and ppsl_dt >= date_limit:
-                    clean_nm = bill_nm.upper().replace(" ", "")
-                    if any(k.upper() in clean_nm for k in keywords):
-                        filtered_bills.append({
-                            'date': raw_dt,
-                            'title': bill_nm,
-                            'proposer': b.get('PROPOSER', ''),
-                            'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={b.get('BILL_ID')}"
-                        })
-        
-        return filtered_bills
+                clean_nm = bill_nm.upper().replace(" ", "")
+                if any(k.upper() in clean_nm for k in keywords):
+                    filtered_bills.append({
+                        'date': b.get('PROPOSE_DT', ''),
+                        'title': bill_nm,
+                        'proposer': b.get('PROPOSER', ''),
+                        'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={b.get('BILL_ID')}"
+                    })
+        return filtered_bills, all_recent_samples
     except Exception as e:
-        print(f"데이터 수집 에러: {e}")
-        return []
+        print(f"에러: {e}")
+        return [], [str(e)]
 
-def send_email(bills):
+def send_email(bills, samples):
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🏛️ [NIA] 국회 지능정보사회 입법 동향 - {len(bills)}건 발견"
+    msg['Subject'] = f"🏛️ [데이터 진단] 국회 입법 모니터링 ({len(bills)}건 발견)"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
     html = f"""
-    <html><body style="font-family: 'Malgun Gothic', sans-serif;">
-        <h2 style="color: #002d56; border-left: 5px solid #002d56; padding-left: 10px;">📊 국회 실시간 입법 동향 모니터링 (NIA)</h2>
-        <p><b>조회 범위:</b> 제22대 국회 상정 의안 전체 대상</p>
+    <html><body>
+        <h3>1. 키워드 필터링 결과: {len(bills)}건</h3>
     """
-    if not bills:
-        html += "<p style='color: #c0392b; font-weight: bold;'>현재 검색 조건에 부합하는 최근 상정 법안이 없습니다.</p>"
-    else:
-        html += f"<p>총 <b>{len(bills)}건</b>의 주요 법안이 감지되었습니다.</p>"
-        html += "<table border='1' style='border-collapse: collapse; width: 100%; border: 1px solid #ddd; font-size: 13px;'>"
-        html += "<tr style='background:#002d56; color: white;'><th>제안일</th><th>의안명</th><th>제안자</th></tr>"
+    if bills:
+        html += "<table border='1'><tr><th>날짜</th><th>의안명</th></tr>"
         for b in bills:
-            html += f"<tr><td style='padding:10px; text-align:center;'>{b['date']}</td><td style='padding:10px;'><a href='{b['link']}' style='font-weight:bold; color:#002d56;'>{b['title']}</a></td><td style='padding:10px;'>{b['proposer']}</td></tr>"
+            html += f"<tr><td>{b['date']}</td><td><a href='{b['link']}'>{b['title']}</a></td></tr>"
         html += "</table>"
-    
-    html += "<p style='font-size: 11px; color: #888; margin-top: 20px;'>※ 본 리포트는 국회 오픈 API 데이터를 기반으로 2주 단위 자동 발송됩니다.</p></body></html>"
+    else:
+        html += "<p style='color:red;'>선택하신 키워드와 일치하는 법안이 최신 1,000건 중에는 없습니다.</p>"
+
+    html += f"""
+        <br><hr>
+        <h3>2. 시스템이 실제로 가져온 최신 법안 샘플 (Top 5)</h3>
+        <p>아래 목록이 보인다면 API 연결은 완벽한 것입니다.</p>
+        <ul>
+    """
+    for s in samples:
+        html += f"<li>{s}</li>"
+    html += "</ul></body></html>"
 
     msg.attach(MIMEText(html, 'html'))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(MY_EMAIL, EMAIL_PW)
         server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
-    print(f"이메일 발송 완료! (건수: {len(bills)})")
 
 if __name__ == "__main__":
-    results = fetch_bills()
-    send_email(results)
+    bills, samples = fetch_bills()
+    send_email(bills, samples)
