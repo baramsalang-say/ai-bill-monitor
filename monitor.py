@@ -12,23 +12,25 @@ MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
 def fetch_bills():
+    # 국회 통합 의안 API
     url = "https://open.assembly.go.kr/portal/openapi/nwvrqwxyaytdsfvhu"
     
+    # [핵심] 파이썬에서 거르지 않고, API 서버 검색 엔진을 직접 이용합니다.
+    # BILL_NM 파라미터에 검색어를 직접 넣습니다.
     params = {
         'KEY': API_KEY,
         'Type': 'json',
         'pIndex': 1,
-        'pSize': 1000 
+        'pSize': 100,
+        'BILL_NM': '인공지능'  # 서버에서 '인공지능' 포함된 것만 찾아오라고 시킴
     }
 
     try:
         response = requests.get(url, params=params, timeout=30)
         data = response.json()
         
-        # 비교를 위해 하이픈 없는 날짜 형식 준비 (예: 20260301)
-        date_limit = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
-        keywords = ["인공지능", "AI", "데이터", "지능정보", "디지털", "알고리즘", "지능", "로봇"]
-        
+        # 최근 1년치로 범위 대폭 확대 (22대 국회 전체 커버)
+        date_limit = (datetime.now() - timedelta(days=365)).strftime('%Y%m%d')
         filtered_bills = []
 
         if 'nwvrqwxyaytdsfvhu' in data:
@@ -36,25 +38,18 @@ def fetch_bills():
             
             for b in rows:
                 bill_nm = b.get('BILL_NM', '')
-                # 날짜 데이터에서 하이픈 제거 (2026-04-30 -> 20260430)
                 raw_dt = b.get('PPSL_DT', '')
                 ppsl_dt = raw_dt.replace("-", "") if raw_dt else ""
                 
-                ppsr_nm = b.get('PPSR_NM', '')
-                bill_id = b.get('BILL_ID', '')
-
-                # 날짜 비교 (숫자형 문자열 비교)
+                # 서버에서 이미 걸러왔지만, 날짜만 한 번 더 체크
                 if ppsl_dt and ppsl_dt >= date_limit:
-                    clean_nm = bill_nm.upper().replace(" ", "")
-                    if any(k.upper() in clean_nm for k in keywords):
-                        filtered_bills.append({
-                            'date': raw_dt, # 표시용은 원본 사용
-                            'title': bill_nm,
-                            'proposer': ppsr_nm,
-                            'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}"
-                        })
+                    filtered_bills.append({
+                        'date': raw_dt,
+                        'title': bill_nm,
+                        'proposer': b.get('PPSR_NM', ''),
+                        'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={b.get('BILL_ID')}"
+                    })
         
-        filtered_bills.sort(key=lambda x: x['date'], reverse=True)
         return filtered_bills
     except Exception as e:
         print(f"오류: {e}")
@@ -62,23 +57,23 @@ def fetch_bills():
 
 def send_email(bills):
     msg = MIMEMultipart('alternative')
-    # 제목에 시도 횟수나 상태를 알 수 있게 표시
-    msg['Subject'] = f"🏛️ [최종교정] 국회 입법 모니터링 - {len(bills)}건 발견 ({datetime.now().strftime('%m/%d')})"
+    msg['Subject'] = f"🏛️ [최종] NIA 국회 AI 입법 동향 리포트 - {len(bills)}건 발견"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
     html = f"""
     <html>
     <body>
-        <h2>📊 NIA 지능정보사회 입법 동향 (날짜형식 보정판)</h2>
-        <p>최근 60일 내 상정된 의안 {len(bills)}건이 검색되었습니다.</p>
+        <h2 style="color: #004792;">📊 NIA 지능정보사회 입법 동향 (서버 검색 모드)</h2>
+        <p>국회 API 서버에서 '인공지능' 키워드로 직접 검색한 결과입니다.</p>
     """
 
     if not bills:
-        html += "<p style='color: red;'>데이터를 1,000건 훑었으나 조건에 맞는 법안이 없습니다. (날짜 비교 로직 점검 완료)</p>"
+        html += "<p style='color: red;'>서버 검색 결과, 최근 1년 내 '인공지능' 키워드가 포함된 법안 데이터가 없습니다.</p>"
     else:
+        html += f"<p>총 <b>{len(bills)}건</b>의 법안이 발견되었습니다.</p>"
         html += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
-        html += "<tr style='background:#f2f2f2;'><th>제안일</th><th>법안명</th><th>제안자</th><th>상세보기</th></tr>"
+        html += "<tr style='background:#f2f2f2;'><th>제안일</th><th>법안명</th><th>제안자</th><th>링크</th></tr>"
         for b in bills:
             html += f"<tr><td>{b['date']}</td><td>{b['title']}</td><td>{b['proposer']}</td><td><a href='{b['link']}'>원문</a></td></tr>"
         html += "</table>"
