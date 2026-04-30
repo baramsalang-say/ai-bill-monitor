@@ -1,99 +1,82 @@
 import requests
-from bs4 import BeautifulSoup
 import smtplib
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # [환경 변수]
+API_KEY = os.environ.get("ASSEMBLY_API_KEY")
 EMAIL_PW = os.environ.get("MY_EMAIL_PW")
 MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
 def fetch_bills():
-    # 국회 의안정보시스템 검색 주소
-    url = "https://likms.assembly.go.kr/bill/billLList.do"
+    # 명세서에 나온 '의안정보 통합 API' 엔드포인트
+    url = "https://open.assembly.go.kr/portal/openapi/nwvrqwxyaytdsfvhu"
+    
+    # 넉넉하게 최근 60일치 조회
+    start_date = (datetime.now() - timedelta(days=60)).strftime('%Y%m%d')
+    
     params = {
-        'searchStr': '인공지능',
+        'KEY': API_KEY,
+        'Type': 'json',
         'pIndex': 1,
-        'pSize': 15
-    }
-    # 실제 브라우저처럼 보이게 하는 헤더 (차단 방지)
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8'
+        'pSize': 500
     }
 
     try:
-        print("데이터 수집 시작...")
-        response = requests.get(url, params=params, headers=headers, timeout=30)
-        response.raise_for_status() # 접속 실패 시 에러 발생
+        response = requests.get(url, params=params, timeout=30)
+        data = response.json()
         
-        soup = BeautifulSoup(response.text, 'html.parser')
-        bills = []
-        
-        # 테이블 행 찾기 (가장 표준적인 경로)
-        rows = soup.find_all('tr')
-        print(f"총 {len(rows)}개의 행 발견")
+        keywords = ["인공지능", "AI", "데이터", "지능정보", "디지털", "알고리즘"]
+        filtered_bills = []
 
-        for row in rows:
-            cols = row.find_all('td')
-            if len(cols) > 4:
-                title_elem = cols[1].find('a')
-                if title_elem:
-                    title = title_elem.get_text(strip=True)
-                    proposer = cols[3].get_text(strip=True)
-                    date = cols[4].get_text(strip=True)
-                    
-                    # 상세 링크 추출
-                    onclick = title_elem.get('onclick', '')
-                    bill_id = ""
-                    if "billId=" in onclick or "'" in onclick:
-                        try:
-                            bill_id = onclick.split("'")[1]
-                        except: pass
-                    
-                    bills.append({
-                        'title': title,
-                        'proposer': proposer,
-                        'date': date,
-                        'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}" if bill_id else "#"
-                    })
-        
-        print(f"최종 {len(bills)}건 수집 완료")
-        return bills
+        if 'nwvrqwxyaytdsfvhu' in data:
+            rows = data['nwvrqwxyaytdsfvhu'][1].get('row', [])
+            for b in rows:
+                # 명세서의 출력명(BILL_NM, PPSL_DT, PPSR_NM) 적용
+                bill_nm = b.get('BILL_NM', '')
+                ppsl_dt = b.get('PPSL_DT', '')  # 제안일
+                ppsr_nm = b.get('PPSR_NM', '')  # 제안자명
+                bill_id = b.get('BILL_ID', '')
+
+                # 날짜 필터링 및 키워드 매칭
+                if ppsl_dt >= start_date:
+                    if any(k in bill_nm.replace(" ", "").upper() for k in keywords):
+                        filtered_bills.append({
+                            'date': ppsl_dt,
+                            'title': bill_nm,
+                            'proposer': ppsr_nm,
+                            'link': f"https://likms.assembly.go.kr/bill/billDetail.do?billId={bill_id}"
+                        })
+        return filtered_bills
     except Exception as e:
-        print(f"상세 에러 발생: {e}")
+        print(f"데이터 수집 중 오류: {e}")
         return []
 
 def send_email(bills):
-    # 데이터가 없어도 시스템 생존 확인을 위해 메일은 보냅니다.
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"[최종확인] 국회 입법 모니터링 시스템 보고 ({datetime.now().strftime('%m/%d')})"
+    msg['Subject'] = f"🏛️ [NIA] 국회 입법 동향 리포트 - {len(bills)}건 발견 ({datetime.now().strftime('%m/%d')})"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
     if not bills:
-        content = "<p>수집된 데이터가 없습니다. 국회 사이트 구조가 변경되었거나 접근이 차단되었을 수 있습니다.</p>"
+        html = "<h3>최근 60일간 상정된 관련 키워드 법안이 없습니다.</h3>"
     else:
-        content = f"<h3>최신 인공지능 관련 법안 ({len(bills)}건)</h3>"
-        content += "<table border='1' style='border-collapse: collapse; width: 100%;'>"
-        content += "<tr style='background:#f2f2f2;'><th>날짜</th><th>법안명</th><th>제안자</th></tr>"
+        html = f"<h3>최근 60일간 상정된 AI/데이터 법안 (총 {len(bills)}건)</h3>"
+        html += "<table border='1' style='border-collapse: collapse; width: 100%; font-family: sans-serif;'>"
+        html += "<tr style='background:#f2f2f2;'><th>제안일</th><th>법안명</th><th>제안자</th></tr>"
         for b in bills:
-            content += f"<tr><td>{b['date']}</td><td><a href='{b['link']}'>{b['title']}</a></td><td>{b['proposer']}</td></tr>"
-        content += "</table>"
+            html += f"<tr><td>{b['date']}</td><td><b><a href='{b['link']}'>{b['title']}</a></b></td><td>{b['proposer']}</td></tr>"
+        html += "</table>"
 
-    msg.attach(MIMEText(content, 'html'))
+    msg.attach(MIMEText(html, 'html'))
 
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(MY_EMAIL, EMAIL_PW)
-            server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
-        print("메일 발송 성공")
-    except Exception as e:
-        print(f"메일 발송 에러: {e}")
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(MY_EMAIL, EMAIL_PW)
+        server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
 
 if __name__ == "__main__":
-    data = fetch_bills()
-    send_email(data)
+    results = fetch_bills()
+    send_email(results)
