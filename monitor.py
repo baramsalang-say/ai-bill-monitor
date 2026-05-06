@@ -60,7 +60,7 @@ def fetch_nia_specialized_bills():
 def send_nia_report(bills):
     # 메일 발송 로직 시작
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🤖 [모니터링] 인공지능 및 디지털 관련 입법 리포트 ({len(bills)}건)"
+    msg['Subject'] = f"[모니터링] 인공지능 및 디지털 관련 입법 리포트 ({len(bills)}건)"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
