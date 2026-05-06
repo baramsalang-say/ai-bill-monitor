@@ -1,10 +1,9 @@
 name: NIA Bill Monitor
 
-# 실행 트리거 설정 (이 부분이 'on' 섹션입니다)
 on:
-  workflow_dispatch:      # [수동] Actions 탭에서 버튼을 눌러 바로 실행 가능
+  workflow_dispatch:      # [수동] 언제든 버튼 눌러 실행 가능
   schedule:
-    - cron: '0 0 * * *'   # [자동] 매일 한국시간 오전 9시(UTC 0시)에 실행
+    - cron: '0 0 * * *'   # [자동] 매일 한국시간 오전 9시 (UTC 00:00)
 
 jobs:
   build:
