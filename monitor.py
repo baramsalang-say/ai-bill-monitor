@@ -35,7 +35,7 @@ def fetch_nia_specialized_bills():
         ]
         
         filtered_bills = []
-        three_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+        three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
 
         if 'BILLRCP' in data:
             rows = data['BILLRCP'][1].get('row', [])
