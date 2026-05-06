@@ -1,17 +1,6 @@
-name: AI Bill Monitor Job
-
-on:
-  schedule:
-    - cron: '0 0 1,15 * *'
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
-    # [여기 추가] Node.js 24를 강제로 사용하도록 설정하여 경고 제거
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true' 
-      
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -19,9 +8,11 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install requests
-      - name: Run Script
-        run: python monitor.py
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests  # 이 부분이 누락되면 exit code 1이 뜹니다.
+      - name: Run script
         env:
           ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
           MY_EMAIL_PW: ${{ secrets.MY_EMAIL_PW }}
+        run: python monitor.py
