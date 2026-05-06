@@ -1,18 +1,72 @@
-# monitor.py의 상단 import 문에 timedelta 추가 확인
+import requests
+import smtplib
+import os
 from datetime import datetime, timedelta
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-# ... (중략) ...
+# [환경 변수] GitHub Secrets 설정 확인 필수
+API_KEY = os.environ.get("ASSEMBLY_API_KEY")
+EMAIL_PW = os.environ.get("MY_EMAIL_PW")
+MY_EMAIL = "baramsalang@gmail.com"
+RECEIVE_EMAIL = "jyjeong@nia.or.kr"
+
+# [필수] 검색 키워드 정의 (이 부분이 없으면 에러가 납니다)
+MONITORING_KEYWORDS = [
+    "인공지능", "AI", "데이터", "디지털", "지능정보", "ICT", "정보통신", 
+    "플랫폼", "알고리즘", "클라우드", "소프트웨어", "SW", "반도체", 
+    "네트워크", "5G", "6G", "메타버스", "사이버", "보안", "양자"
+]
+
+def fetch_nia_specialized_bills():
+    url = "https://open.assembly.go.kr/portal/openapi/BILLRCP"
+    params = {
+        'Key': API_KEY,
+        'Type': 'json',
+        'pIndex': 1,
+        'pSize': 1000 
+    }
+
+    try:
+        response = requests.get(url, params=params, timeout=30)
+        data = response.json()
+        
+        filtered_bills = []
+        # 최근 3개월(90일) 날짜 계산
+        three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+
+        if 'BILLRCP' in data:
+            rows = data['BILLRCP'][1].get('row', [])
+            for b in rows:
+                bill_nm = b.get('BILL_NM', '')
+                ppsl_dt = b.get('PPSL_DT', '')
+                
+                if ppsl_dt < three_months_ago:
+                    continue
+                
+                clean_nm = bill_nm.upper().replace(" ", "")
+                if any(k.upper() in clean_nm for k in MONITORING_KEYWORDS):
+                    filtered_bills.append({
+                        'date': ppsl_dt,
+                        'title': bill_nm,
+                        'proposer': b.get('PPSR_NM', '의원 등'),
+                        'link': b.get('LINK_URL', '')
+                    })
+        return filtered_bills
+    except Exception as e:
+        print(f"데이터 가져오기 오류: {e}")
+        return []
 
 def send_nia_report(bills):
+    # 메일 발송 로직 시작
     msg = MIMEMultipart('alternative')
     msg['Subject'] = f"🤖 [모니터링] 인공지능 및 디지털 관련 입법 리포트 ({len(bills)}건)"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
-    # [교정] UTC 시간을 한국 시각(KST, +9시간)으로 변환
+    # 한국 시각(KST) 보정
     kst_now = datetime.now() + timedelta(hours=9)
     current_time_str = kst_now.strftime('%Y-%m-%d %H:%M')
-
     keyword_str = ", ".join(MONITORING_KEYWORDS)
 
     html = f"""
@@ -41,6 +95,15 @@ def send_nia_report(bills):
     """
     msg.attach(MIMEText(html, 'html'))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(MY_EMAIL, EMAIL_PW)
-        server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(MY_EMAIL, EMAIL_PW)
+            server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
+        print("메일 발송 성공!")
+    except Exception as e:
+        print(f"메일 발송 실패: {e}")
+
+# [중요] 이 코드가 있어야 실제로 프로그램이 작동합니다!
+if __name__ == "__main__":
+    nia_bills = fetch_nia_specialized_bills()
+    send_nia_report(nia_bills)
