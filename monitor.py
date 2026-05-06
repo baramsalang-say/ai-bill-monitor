@@ -5,38 +5,38 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# 환경 변수 세팅
+# [환경 변수] GitHub Secrets에 등록된 값을 사용합니다.
 API_KEY = os.environ.get("ASSEMBLY_API_KEY")
 EMAIL_PW = os.environ.get("MY_EMAIL_PW")
 MY_EMAIL = "baramsalang@gmail.com"
 RECEIVE_EMAIL = "jyjeong@nia.or.kr"
 
-def fetch_bills_guaranteed():
-    url = "https://open.assembly.go.kr/portal/openapi/BILLRCPV2"
+def fetch_bills():
+    # [교정] 신청하신 서비스 명칭에 맞춰 V2를 제거한 BILLRCP 주소를 사용합니다.
+    url = "https://open.assembly.go.kr/portal/openapi/BILLRCP"
     
-    # [교정] 범위를 300건으로 늘려 더 많은 데이터를 가져옵니다.
     params = {
         'Key': API_KEY,
         'Type': 'json',
         'pIndex': 1,
-        'pSize': 300, 
-        'ERACO': '제22대'
+        'pSize': 300  # 검색 범위를 최근 300건으로 확대
     }
 
     try:
         response = requests.get(url, params=params, timeout=30)
         data = response.json()
         
-        # [테스트용 광범위 키워드] 무엇이라도 걸리게끔 일반적인 단어를 추가했습니다.
-        # "법률", "개정", "국가", "정부" 등은 거의 모든 의안에 포함됩니다.
+        # [테스트] 데이터 수집 확인을 위해 범용 키워드를 포함했습니다.
+        # 나중에 안정화되면 "법률", "개정" 등은 삭제하셔도 됩니다.
         keywords = [
-            "인공지능", "AI", "데이터", "디지털", "소프트웨어", 
-            "법률", "개정", "국가", "정부", "조세", "관리"
+            "인공지능", "AI", "데이터", "지능정보", "디지털", "소프트웨어", 
+            "법률", "개정", "국가", "정보", "통신"
         ]
         filtered_bills = []
 
-        if 'BILLRCPV2' in data:
-            rows = data['BILLRCPV2'][1].get('row', [])
+        # [교정] 응답 구조에서도 V2를 제거하여 BILLRCP로 접근합니다.
+        if 'BILLRCP' in data:
+            rows = data['BILLRCP'][1].get('row', [])
             for b in rows:
                 bill_nm = b.get('BILL_NM', '')
                 clean_nm = bill_nm.upper().replace(" ", "")
@@ -47,31 +47,36 @@ def fetch_bills_guaranteed():
                         'proposer': b.get('PPSR_NM', '의원 등'),
                         'link': b.get('LINK_URL', '')
                     })
-        return filtered_bills
+        return filtered_bills, data
     except Exception as e:
-        return []
+        return [], {"error": str(e)}
 
-def send_email(bills):
+def send_email(bills, raw_log):
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = f"🧪 [데이터 확인] 국회 입법 수집 테스트 ({len(bills)}건 발견)"
+    msg['Subject'] = f"🏛️ [최종확인] 국회 입법 수집 리포트 ({len(bills)}건 발견)"
     msg['From'] = MY_EMAIL
     msg['To'] = RECEIVE_EMAIL
 
     html = f"""
     <html><body style="font-family: 'Malgun Gothic', sans-serif;">
-        <h2 style="color: #27ae60;">✅ 시스템 정상 작동 및 데이터 수집 확인</h2>
-        <p>광범위 키워드를 적용하여 <b>총 {len(bills)}건</b>의 데이터를 수집했습니다.</p>
+        <h2 style="color: #002d56;">📊 NIA 지능정보사회 입법 모니터링</h2>
+        <p>서비스 규격(BILLRCP) 교정 후 <b>최근 300건</b>의 의안을 분석한 결과입니다.</p>
     """
+    
     if not bills:
-        html += "<p style='color: red;'>여전히 0건이라면 API 승인 상태를 확인해야 합니다.</p>"
+        html += f"""
+        <p style='color: #e74c3c; font-weight: bold;'>데이터가 발견되지 않았습니다.</p>
+        <p style='font-size: 12px; color: #666;'>서버 응답 로그: {raw_log}</p>
+        """
     else:
+        html += f"<p>총 <b>{len(bills)}건</b>의 의안이 감지되었습니다.</p>"
         html += "<table border='1' style='border-collapse: collapse; width: 100%; border-color: #ddd;'>"
-        html += "<tr style='background:#f4f4f4;'><th>접수일</th><th>의안명</th><th>제안자</th></tr>"
+        html += "<tr style='background:#f8f9fa;'><th>접수일</th><th>의안명</th><th>제안자</th></tr>"
         for b in bills:
-            html += f"<tr><td style='padding:8px; text-align:center;'>{b['date']}</td><td style='padding:8px;'><a href='{b['link']}'>{b['title']}</a></td><td style='padding:8px;'>{b['proposer']}</td></tr>"
+            html += f"<tr><td style='padding:8px; text-align:center;'>{b['date']}</td><td style='padding:8px;'><a href='{b['link']}' style='font-weight:bold; color:#002d56;'>{b['title']}</a></td><td style='padding:8px;'>{b['proposer']}</td></tr>"
         html += "</table>"
+    
     html += "</body></html>"
-
     msg.attach(MIMEText(html, 'html'))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
@@ -79,5 +84,5 @@ def send_email(bills):
         server.sendmail(MY_EMAIL, RECEIVE_EMAIL, msg.as_string())
 
 if __name__ == "__main__":
-    results = fetch_bills_guaranteed()
-    send_email(results)
+    results, log = fetch_bills()
+    send_email(results, log)
