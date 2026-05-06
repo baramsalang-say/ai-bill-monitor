@@ -1,17 +1,29 @@
+name: NIA Bill Monitor
+
+# 실행 트리거 설정 (이 부분이 'on' 섹션입니다)
+on:
+  workflow_dispatch:      # [수동] Actions 탭에서 버튼을 눌러 바로 실행 가능
+  schedule:
+    - cron: '0 0 * * *'   # [자동] 매일 한국시간 오전 9시(UTC 0시)에 실행
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests  # 이 부분이 누락되면 exit code 1이 뜹니다.
-      - name: Run script
+          pip install requests
+
+      - name: Run monitor script
         env:
           ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
           MY_EMAIL_PW: ${{ secrets.MY_EMAIL_PW }}
